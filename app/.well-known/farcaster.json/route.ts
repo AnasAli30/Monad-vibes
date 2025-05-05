@@ -3,14 +3,6 @@ import { APP_URL } from "../../../lib/constants";
 
 export async function GET() {
   const farcasterConfig = {
-    accountAssociation: {
-      header:
-        "",
-      payload:
-        "",
-      signature:
-        "",
-    },
     frame: {
       version: "1",
       name: "Monad Vibes",
