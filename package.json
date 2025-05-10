@@ -25,6 +25,7 @@
     "react-dom": "^18",
     "viem": "^2.22.22",
     "wagmi": "^2.14.12",
+    "web3.storage": "^4.5.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {

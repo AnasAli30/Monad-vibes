@@ -36,6 +36,7 @@ export function MonadVibes() {
   const [addressHistory, setAddressHistory] = useState<AddressHistory[]>([]);
   const [previousNFT, setPreviousNFT] = useState<NFT | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const nftRef = useRef<HTMLDivElement>(null);
   const { actions } = useMiniAppContext();
 
@@ -228,29 +229,32 @@ export function MonadVibes() {
         useCORS: true,
       });
 
-      // Convert canvas to blob
-      const blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((blob: Blob | null) => {
-          if (blob) resolve(blob);
-        }, 'image/png');
-      });
+      // Add padding and random background color
+      const PADDING = 25;
+      const BG_COLORS = [
+        "#fffbe6", // light yellow
+        "#e0e7ff", // light blue
+        "#ffe4fa", // light pink
+        "#e0ffe4", // light green
+        "#f3e8ff"  // light purple
+      ];
+      const bgColor = BG_COLORS[Math.floor(Math.random() * BG_COLORS.length)];
+      const paddedCanvas = document.createElement("canvas");
+      paddedCanvas.width = canvas.width + PADDING * 2;
+      paddedCanvas.height = canvas.height + PADDING * 2;
+      const ctx = paddedCanvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, paddedCanvas.width, paddedCanvas.height);
+        ctx.drawImage(canvas, PADDING, PADDING);
+      }
 
-      // Create a File object from the blob
-      const file = new File([blob], `monad-vibes-${Date.now()}.png`, { type: 'image/png' });
-      
-      // Create a FormData object and append the file
-   
-
-    
-      
-      // Share with the image
-      actions?.composeCast({
-        text: `🎨 Monad Vibes: ${nft.name}\n\n📈 7-Day Performance: ${formatVolumeChange(nft.volumeChange["7day"])}\n\n${getRoastMessage(nft.volumeChange["7day"])}\n\nCheck it out!`,
-        embeds: [ `${APP_URL}`],
-      });
+      // Convert canvas to base64 and set preview
+      const dataUrl = paddedCanvas.toDataURL("image/png");
+      setPreviewImage(dataUrl);
     } catch (err) {
-      console.error('Error capturing or uploading screenshot:', err);
-      // Fallback to sharing without screenshot
+      console.error('Error capturing screenshot:', err);
+      // Fallback to basic sharing
       actions?.composeCast({
         text: `🎨 Monad Vibes: ${nft.name}\n\n📈 7-Day Performance: ${formatVolumeChange(nft.volumeChange["7day"])}\n\n${getRoastMessage(nft.volumeChange["7day"])}\n\nCheck it out!`,
         embeds: [`${APP_URL}`],
@@ -258,6 +262,70 @@ export function MonadVibes() {
     } finally {
       setIsCapturing(false);
     }
+  };
+
+  const handleShareWithPreview = async () => {
+    if (!previewImage || !nft) return;
+
+    try {
+      // Convert base64 to blob
+      const base64Response = await fetch(previewImage);
+      const blob = await base64Response.blob();
+      
+      // Create a file object
+      const file = new File([blob], `monad-vibes-${Date.now()}.png`, { type: 'image/png' });
+      
+      // Upload to Pinata IPFS
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_PINATA_JWT}`,
+        },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Pinata upload failed: ${res.status} ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      const ipfsHash = data.IpfsHash;
+      
+      // Get the IPFS URL (using Pinata gateway)
+      const imageUrl = `https://media.istockphoto.com/id/1294957728/photo/new-normal-concept.jpg?s=612x612&w=0&k=20&c=_HBUahQdRHZqE_0dj7pOJZ4m5Z4qG08Rx15FVP-B7c4=`;
+      
+      const shareUrl = `${window.location.origin}/share?img=${imageUrl}`;
+      const text = `🎨 Monad Vibes: ${nft.name}\n\n📈 7-Day Performance: ${formatVolumeChange(nft.volumeChange["7day"])}\n\n${getRoastMessage(nft.volumeChange["7day"])}\n\nThink you can find a better NFT? Challenge accepted! 🚀`;
+      const url = `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}&embeds[]=${encodeURIComponent(shareUrl)}`;
+      
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        window.location.href = url;
+      } else {
+        await actions?.composeCast({
+          text,
+          embeds: [shareUrl],
+        });
+      }
+      
+      setPreviewImage(null); // Clear preview after sharing
+    } catch (err) {
+      console.error('Error sharing image:', err);
+      alert("Failed to share NFT: " + ((err as any)?.message || "Unknown error"));
+      // Fallback to sharing without image
+      actions?.composeCast({
+        text: `🎨 Monad Vibes: ${nft.name}\n\n📈 7-Day Performance: ${formatVolumeChange(nft.volumeChange["7day"])}\n\n${getRoastMessage(nft.volumeChange["7day"])}\n\nThink you can find a better NFT? Challenge accepted! 🚀`,
+        embeds: [`${APP_URL}`],
+      });
+      setPreviewImage(null); // Clear preview on error
+    }
+  };
+
+  const handleCancelPreview = () => {
+    setPreviewImage(null);
   };
 
   if (showAddressInput || !nft) {
@@ -342,96 +410,125 @@ export function MonadVibes() {
     return (
       <div className={`min-h-screen ${backgroundGradient} p-8`}>
         <div className="max-w-4xl mx-auto">
-          <div 
-            ref={nftRef}
-            className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl overflow-hidden"
-          >
-            <div className="relative h-96">
-              <Image
-                src={nft.image}
-                alt={nft.name}
-                fill
-                className="object-contain p-4"
-                unoptimized
-              />
-            </div>
-            
-            <div className="p-8">
-              <h2 className="text-3xl font-bold text-gray-800 mb-4">{nft.name}</h2>
-              
-              {/* Volume Changes with Roast */}
-              <div className="mb-8">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-semibold text-gray-800">7-Day Performance</h3>
-                  <div className={`text-2xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                    {formatVolumeChange(volumeChange)}
-                  </div>
-                </div>
-                <div className="bg-gray-100/80 backdrop-blur-sm p-6 rounded-xl">
-                  <p className="text-gray-800 text-lg font-medium">{roastMessage}</p>
-                </div>
+          {previewImage ? (
+            <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl p-8">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">Preview Your Share</h2>
+              <div className="mb-6">
+                <img 
+                  src={previewImage} 
+                  alt="Preview" 
+                  className="w-full rounded-lg shadow-md"
+                />
               </div>
-              
-              {/* Other Volume Changes */}
-              <div className="mb-8">
-                <h3 className="text-xl font-semibold text-gray-800 mb-4">Other Timeframes</h3>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className={`p-6 rounded-xl ${getVolumeColor(nft.volumeChange["1day"])}`}>
-                    <p className="text-sm text-gray-500 mb-1">24h Change</p>
-                    <p className="text-2xl font-bold text-gray-800">{formatVolumeChange(nft.volumeChange["1day"])}</p>
-                  </div>
-                  <div className={`p-6 rounded-xl ${getVolumeColor(nft.volumeChange["30day"])}`}>
-                    <p className="text-sm text-gray-500 mb-1">30d Change</p>
-                    <p className="text-2xl font-bold text-gray-800">{formatVolumeChange(nft.volumeChange["30day"])}</p>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Attributes */}
-              <div className="grid grid-cols-2 gap-6 mb-8">
-                {nft.attributes?.map((attr, index) => (
-                  <div key={index} className="bg-gray-100/80 backdrop-blur-sm p-6 rounded-xl">
-                    <p className="text-sm text-gray-500 mb-1">{attr.trait_type}</p>
-                    <p className="text-lg font-semibold text-gray-800">{attr.value}</p>
-                  </div>
-                ))}
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={handleCancelPreview}
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-3 px-6 rounded-xl text-lg shadow-lg transition-all transform hover:scale-105"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleShareWithPreview}
+                  className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-3 px-6 rounded-xl text-lg shadow-lg hover:from-blue-600 hover:to-purple-700 transition-all transform hover:scale-105"
+                >
+                  Share Now
+                </button>
               </div>
             </div>
-          </div>
-          
-          <div className="mt-8 flex justify-center space-x-6">
-            {previousNFT && (
-              <button
-                onClick={handleBack}
-                className="bg-white/90 backdrop-blur-sm text-gray-900 font-bold py-3 px-6 rounded-xl text-lg shadow-lg hover:bg-white transition-all transform hover:scale-105"
+          ) : (
+            <>
+              <div 
+                ref={nftRef}
+                className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl overflow-hidden"
               >
-                ← Back
-              </button>
-            )}
-            <button
-              onClick={handleCheckAnother}
-              className="bg-white/90 backdrop-blur-sm text-gray-900 font-bold py-3 px-6 rounded-xl text-lg shadow-lg hover:bg-white transition-all transform hover:scale-105"
-            >
-              Check Another
-            </button>
-            <button
-              className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-3 px-6 rounded-xl text-lg shadow-lg hover:from-blue-600 hover:to-purple-700 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handleShare}
-              disabled={isCapturing}
-            >
-              {isCapturing ? (
-                <div className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Capturing...
+                <div className="relative h-96">
+                  <Image
+                    src={nft.image}
+                    alt={nft.name}
+                    fill
+                    className="object-contain p-4"
+                    unoptimized
+                  />
                 </div>
-              ) : (
-                'Share your vibe'
-              )}
-            </button>
-          </div>
+                
+                <div className="p-8">
+                  <h2 className="text-3xl font-bold text-gray-800 mb-4">{nft.name}</h2>
+                  
+                  {/* Volume Changes with Roast */}
+                  <div className="mb-8">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-xl font-semibold text-gray-800">7-Day Performance</h3>
+                      <div className={`text-2xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                        {formatVolumeChange(volumeChange)}
+                      </div>
+                    </div>
+                    <div className="bg-gray-100/80 backdrop-blur-sm p-6 rounded-xl">
+                      <p className="text-gray-800 text-lg font-medium">{roastMessage}</p>
+                    </div>
+                  </div>
+                  
+                  {/* Other Volume Changes */}
+                  <div className="mb-8">
+                    <h3 className="text-xl font-semibold text-gray-800 mb-4">Other Timeframes</h3>
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className={`p-6 rounded-xl ${getVolumeColor(nft.volumeChange["1day"])}`}>
+                        <p className="text-sm text-gray-500 mb-1">24h Change</p>
+                        <p className="text-2xl font-bold text-gray-800">{formatVolumeChange(nft.volumeChange["1day"])}</p>
+                      </div>
+                      <div className={`p-6 rounded-xl ${getVolumeColor(nft.volumeChange["30day"])}`}>
+                        <p className="text-sm text-gray-500 mb-1">30d Change</p>
+                        <p className="text-2xl font-bold text-gray-800">{formatVolumeChange(nft.volumeChange["30day"])}</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Attributes */}
+                  <div className="grid grid-cols-2 gap-6 mb-8">
+                    {nft.attributes?.map((attr, index) => (
+                      <div key={index} className="bg-gray-100/80 backdrop-blur-sm p-6 rounded-xl">
+                        <p className="text-sm text-gray-500 mb-1">{attr.trait_type}</p>
+                        <p className="text-lg font-semibold text-gray-800">{attr.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-8 flex justify-center space-x-6">
+                {previousNFT && (
+                  <button
+                    onClick={handleBack}
+                    className="bg-white/90 backdrop-blur-sm text-gray-900 font-bold py-3 px-6 rounded-xl text-lg shadow-lg hover:bg-white transition-all transform hover:scale-105"
+                  >
+                    ← Back
+                  </button>
+                )}
+                <button
+                  onClick={handleCheckAnother}
+                  className="bg-white/90 backdrop-blur-sm text-gray-900 font-bold py-3 px-6 rounded-xl text-lg shadow-lg hover:bg-white transition-all transform hover:scale-105"
+                >
+                  Check Another
+                </button>
+                <button
+                  className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-3 px-6 rounded-xl text-lg shadow-lg hover:from-blue-600 hover:to-purple-700 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleShare}
+                  disabled={isCapturing}
+                >
+                  {isCapturing ? (
+                    <div className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Capturing...
+                    </div>
+                  ) : (
+                    'Share your vibe'
+                  )}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );

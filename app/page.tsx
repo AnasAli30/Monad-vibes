@@ -23,6 +23,14 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: "Monad Vibes",
       description: "Discover your random NFT",
+      images: [
+        {
+          url: `${APP_URL}/images/feed.png`,
+          width: 1200,
+          height: 630,
+          alt: "Games and Art Mini App",
+        },
+      ],
     },
     other: {
       "fc:frame": JSON.stringify(frame),
